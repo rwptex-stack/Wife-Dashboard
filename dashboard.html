@@ -23,11 +23,10 @@ header p{color:var(--text-muted);font-size:.85rem;margin-top:6px;letter-spacing:
 .news-section{margin-bottom:14px}
 .news-section:last-child{margin-bottom:0}
 .news-section-title{font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:8px}
-.news-item{font-size:.82rem;color:#bbb;padding:4px 0;line-height:1.45;display:flex;gap:8px;cursor:pointer;transition:color .2s}
+.news-item{font-size:.82rem;color:#bbb;padding:4px 0;line-height:1.45;display:flex;gap:8px;cursor:pointer;transition:color .2s;text-decoration:none}
 .news-item:hover{color:var(--accent2)}
 .news-dot{color:var(--accent);flex-shrink:0;font-weight:bold}
 .news-dot::before{content:'→ ';margin-right:4px}
-.tag{display:inline-block;font-size:.62rem;background:#2a2000;color:var(--accent);border:1px solid #3a3000;padding:1px 6px;border-radius:8px;vertical-align:middle;margin-left:6px}
 .status{color:var(--text-muted);font-size:.82rem;font-style:italic;display:flex;align-items:center;gap:8px}
 .spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -54,7 +53,6 @@ header p{color:var(--text-muted);font-size:.85rem;margin-top:6px;letter-spacing:
 .em-item:last-child{border-bottom:none}
 .em-from{font-weight:500;font-size:.9rem}
 .em-subj{font-size:.85rem;color:var(--text-muted);margin-top:3px}
-.em-sum{font-size:.82rem;color:var(--accent2);margin-top:4px;font-style:italic}
 .em-date{font-size:.75rem;color:var(--text-muted);margin-top:3px}
 .em-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 .em-btn{font-size:.75rem;padding:5px 12px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-family:'DM Sans',sans-serif}
@@ -93,7 +91,7 @@ header p{color:var(--text-muted);font-size:.85rem;margin-top:6px;letter-spacing:
 <div class="card">
   <div class="card-label">
     <span>Morning Briefing</span>
-    <button class="small-btn" id="brief-btn" onclick="loadBriefing()">Load Briefing</button>
+    <button class="small-btn" id="brief-btn" onclick="loadBriefing(this.textContent==='Refresh')">Load Briefing</button>
   </div>
   <div id="brief-body"><div class="status">Click Load Briefing to fetch today's news</div></div>
   <p class="ts" id="brief-ts"></p>
@@ -117,7 +115,7 @@ header p{color:var(--text-muted);font-size:.85rem;margin-top:6px;letter-spacing:
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const GID = '131656481327-d7o8c49e8bvvnksg73e418okoi3eaupq.apps.googleusercontent.com';
-const SPOUSE_CAL = 'daptex48@gmail.com';
+const SPOUSE_CAL = 'ronptex@gmail.com';
 const SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly';
 const LAT = 30.5418, LON = -98.3629;
 const TK = 'dorothy_tk', TX = 'dorothy_tx';
@@ -168,32 +166,44 @@ function tFetch(url,ms){
   const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
   return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t));
 }
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function dedupe(arr){
+  const seen=new Set(),out=[];
+  for(const o of arr){if(o&&o.title&&!seen.has(o.title)){seen.add(o.title);out.push(o);}}
+  return out;
+}
 async function getRSS(url,n){
   n=n||6;
   function parseXML(txt){
     try{
       const xml=new DOMParser().parseFromString(txt,'text/xml');
       return[...xml.querySelectorAll('item,entry')].slice(0,n)
-        .map(i=>i.querySelector('title')?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,'').trim())
-        .filter(t=>t&&t.length>5);
+        .map(i=>{
+          const title=i.querySelector('title')?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,'').trim();
+          const linkEl=i.querySelector('link');
+          const link=(linkEl?.getAttribute('href'))||(linkEl?.textContent?.trim())||'';
+          return{title,link};
+        })
+        .filter(o=>o.title&&o.title.length>5);
     }catch(e){return[];}
   }
   const[r1,r2]=await Promise.all([
-    tFetch('https://corsproxy.io/?'+encodeURIComponent(url),6000)
+    tFetch('https://corsproxy.io/?'+encodeURIComponent(url),14000)
       .then(r=>r.ok?r.text().then(parseXML):[]).catch(()=>[]),
-    tFetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(url)+'&count='+n,6000)
-      .then(r=>r.json()).then(d=>(d.items||[]).map(i=>i.title).filter(Boolean)).catch(()=>[])
+    tFetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(url)+'&count='+n,14000)
+      .then(r=>r.json()).then(d=>(d.items||[]).map(i=>({title:i.title,link:i.link||''})).filter(o=>o.title)).catch(()=>[])
   ]);
   return(r1.length?r1:r2).slice(0,n);
 }
-async function loadBriefing(){
+async function loadBriefing(force){
   const el=document.getElementById('brief-body'),ts=document.getElementById('brief-ts'),btn=document.getElementById('brief-btn');
-  const ck='dorothy_brief_'+dayKey();
-  try{const c=localStorage.getItem(ck);if(c){el.innerHTML=c;ts.textContent='Cached for today';return;}}catch(e){}
+  const ck='dorothy_brief_v2_'+dayKey();
+  if(!force){
+    try{const c=localStorage.getItem(ck);if(c){el.innerHTML=c;ts.textContent='Cached for today · click Refresh for the latest';btn.textContent='Refresh';return;}}catch(e){}
+  }
   btn.disabled=true;btn.textContent='Loading...';
-  el.innerHTML='<div class="status"><div class="spinner"></div>Fetching headlines from 13 feeds...</div>';
-  const[mw,fox,rcp,hill,ars,vg,bbcW,bbcT,nyt,artnews,hyperallergic,contempart,booooooom]=await Promise.all([
-    getRSS('https://feeds.marketwatch.com/marketwatch/topstories/',6),
+  el.innerHTML='<div class="status"><div class="spinner"></div>Fetching headlines from 12 feeds...</div>';
+  const[fox,rcp,hill,ars,vg,bbcW,bbcT,nyt,artnews,hyperallergic,contempart,booooooom]=await Promise.all([
     getRSS('https://feeds.foxnews.com/foxnews/latest',6),
     getRSS('https://www.realclearpolitics.com/index.xml',6),
     getRSS('https://thehill.com/rss/syndicator/19110',5),
@@ -207,16 +217,26 @@ async function loadBriefing(){
     getRSS('https://www.contemporaryartdaily.com/feed/',6),
     getRSS('https://www.booooooom.com/feed/',6)
   ]);
-  function sec(title,items,tag){
-    const h='<div class="news-section-title">'+title+(tag?'<span class="tag">'+tag+'</span>':'')+'</div>';
-    return'<div class="news-section">'+h+(items||[]).map(i=>'<div class="news-item"><span class="news-dot">·</span>'+i+'</div>').join('')+'</div>';
+  const totalItems=fox.length+rcp.length+hill.length+ars.length+vg.length+bbcW.length+bbcT.length+nyt.length+artnews.length+hyperallergic.length+contempart.length+booooooom.length;
+  if(totalItems===0){
+    el.innerHTML='<div class="status"><span class="err">Could not fetch headlines right now.</span> <button class="small-btn" onclick="loadBriefing(true)">Retry</button></div>';
+    ts.textContent='';
+    btn.disabled=false;btn.textContent='Refresh';
+    return;
   }
-  const html=sec('Markets &amp; Economy',[...new Set(mw)].slice(0,6))+
-             sec('Politics',[...new Set([...fox,...rcp,...hill])].slice(0,8))+
-             sec('International',[...new Set([...bbcW,...bbcT])].slice(0,8))+
-             sec('Tech',[...new Set([...ars,...vg])].slice(0,6))+
-             sec('Light Reading',[...new Set(nyt)],'')+
-             sec('Art &amp; Culture',[...new Set([...artnews,...hyperallergic,...contempart,...booooooom])].slice(0,10));
+  function sec(title,items){
+    const h='<div class="news-section-title">'+title+'</div>';
+    return'<div class="news-section">'+h+(items||[]).map(i=>{
+      const t=esc(i.title||''),href=i.link?esc(i.link):'';
+      const inner='<span class="news-dot">·</span>'+t;
+      return href?'<a class="news-item" href="'+href+'" target="_blank" rel="noopener noreferrer">'+inner+'</a>':'<div class="news-item">'+inner+'</div>';
+    }).join('')+'</div>';
+  }
+  const html=sec('Politics',dedupe([...fox,...rcp,...hill]).slice(0,8))+
+             sec('International',dedupe([...bbcW,...bbcT]).slice(0,8))+
+             sec('Tech',dedupe([...ars,...vg]).slice(0,6))+
+             sec('Light Reading',dedupe(nyt))+
+             sec('Art &amp; Culture',dedupe([...artnews,...hyperallergic,...contempart,...booooooom]).slice(0,10));
   el.innerHTML=html;
   ts.textContent='Loaded '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+' · '+new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   try{Object.keys(localStorage).filter(k=>k.startsWith('dorothy_brief_')&&k!==ck).forEach(k=>localStorage.removeItem(k));localStorage.setItem(ck,html);}catch(e){}
